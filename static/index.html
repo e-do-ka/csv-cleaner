@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV クレンジング AI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --primary-light: #eef2ff;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --bg: #f1f5f9;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --muted: #64748b;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ===== トップバー ===== */
+    .topbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .topbar .logo { font-size: 17px; font-weight: 700; }
+    .topbar .logo span { color: var(--primary); }
+
+    .container { max-width: 980px; margin: 0 auto; padding: 24px 16px; }
+
+    /* ===== アップロード（初期状態：大、分析後：コンパクト） ===== */
+    .upload-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      transition: all 0.3s;
+    }
+    .upload-area {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 56px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .upload-area:hover, .upload-area.dragover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+    .upload-area input { display: none; }
+    .upload-area .icon { font-size: 48px; margin-bottom: 12px; }
+    .upload-area .hint { color: var(--muted); font-size: 14px; }
+    .upload-area .selected { margin-top: 10px; color: var(--primary); font-weight: 600; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 8px;
+      padding: 13px 24px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      width: 100%;
+      margin-top: 14px;
+    }
+    .btn:hover:not(:disabled) { background: var(--primary-dark); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* 分析後のコンパクトモード */
+    .upload-card.compact { padding: 14px 20px; }
+    .upload-card.compact .upload-area {
+      padding: 0; border: none; background: none;
+      display: flex; align-items: center; gap: 12px;
+      text-align: left;
+    }
+    .upload-card.compact .upload-area .icon { font-size: 22px; margin: 0; }
+    .upload-card.compact .upload-area .hint { display: none; }
+    .upload-card.compact .upload-area .selected { margin: 0; font-size: 14px; }
+    .upload-card.compact .btn {
+      width: auto; margin-top: 0; padding: 8px 18px; font-size: 13px;
+    }
+    .upload-card.compact { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+
+    /* ===== スコアヘッダー ===== */
+    .score-hero {
+      background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+      border-radius: 16px;
+      padding: 24px 28px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      color: white;
+    }
+    .score-ring {
+      width: 92px; height: 92px;
+      border-radius: 50%;
+      background: conic-gradient(white var(--pct), rgba(255,255,255,0.25) 0);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .score-ring-inner {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.18);
+      backdrop-filter: blur(2px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+    }
+    .score-ring-inner .num { font-size: 26px; font-weight: 700; line-height: 1; }
+    .score-ring-inner .lbl { font-size: 10px; opacity: 0.85; margin-top: 2px; }
+    .score-hero .summary { font-size: 14px; line-height: 1.8; opacity: 0.95; }
+    .score-hero .file-meta { font-size: 12px; opacity: 0.75; margin-top: 6px; }
+
+    /* ===== タブ ===== */
+    .tabs {
+      display: flex; gap: 4px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 5px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      background: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { background: var(--primary); color: white; }
+    .tab .badge {
+      background: var(--danger); color: white;
+      font-size: 11px; font-weight: 700;
+      padding: 1px 7px; border-radius: 999px;
+    }
+    .tab.active .badge { background: rgba(255,255,255,0.3); }
+
+    /* ===== パネル ===== */
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      display: none;
+    }
+    .panel.active { display: block; }
+
+    .section-title {
+      font-size: 13px; font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 14px;
+    }
+
+    /* メタ */
+    .meta-row { display: flex; gap: 12px; margin-bottom: 22px; }
+    .meta-item {
+      flex: 1; background: var(--bg);
+      border-radius: 10px; padding: 16px;
+      text-align: center;
+    }
+    .meta-item .val { font-size: 24px; font-weight: 700; color: var(--primary); }
+    .meta-item .lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* テーブル */
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+    th {
+      background: var(--bg); padding: 10px 14px;
+      text-align: left; font-weight: 600;
+      border-bottom: 2px solid var(--border);
+      position: sticky; top: 0;
+    }
+    td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    .empty { color: var(--danger); font-style: italic; }
+    .cell-fixed { background: #f0fdf4; }
+
+    /* 列分析 */
+    .col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+    .col-card {
+      background: var(--bg); border-radius: 10px;
+      padding: 16px; border-left: 4px solid var(--success);
+    }
+    .col-card.has-issue { border-left-color: var(--warning); }
+    .col-name { font-weight: 700; margin-bottom: 4px; }
+    .col-type { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .col-issue { font-size: 12px; color: var(--warning); font-weight: 600; }
+    .col-fix { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .col-ok { font-size: 12px; color: var(--success); font-weight: 600; }
+
+    /* 欠損値 */
+    .missing-item {
+      display: flex; align-items: center;
+      gap: 14px; padding: 13px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .missing-item:last-child { border-bottom: none; }
+    .missing-info { width: 140px; flex-shrink: 0; }
+    .missing-col { font-weight: 600; font-size: 14px; }
+    .missing-action { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .missing-bar-wrap { flex: 1; background: var(--border); border-radius: 4px; height: 8px; }
+    .missing-bar { height: 8px; border-radius: 4px; background: var(--warning); }
+    .missing-pct { font-size: 13px; font-weight: 700; color: var(--warning); width: 48px; text-align: right; }
+
+    .subsection { margin-bottom: 28px; }
+    .subsection:last-child { margin-bottom: 0; }
+
+    /* ダウンロード */
+    .dl-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--primary-light);
+      border: 1px solid #c7d2fe;
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 18px;
+    }
+    .dl-bar .txt { font-size: 14px; color: var(--text); }
+    .dl-bar .btn { width: auto; margin: 0; padding: 10px 20px; font-size: 14px; }
+
+    /* ローディング */
+    .loading-overlay {
+      display: none; position: fixed;
+      inset: 0; background: rgba(255,255,255,0.88);
+      align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px;
+      z-index: 100;
+    }
+    .loading-overlay.show { display: flex; }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 15px; color: var(--muted); }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 640px) {
+      .score-hero { flex-direction: column; text-align: center; }
+      .meta-row { flex-direction: column; }
+      .tabs { flex-wrap: wrap; }
+      .tab { flex: 1 1 45%; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">AIが分析中です...</div>
+</div>
+
+<div class="topbar">
+  <div class="logo">🧹 CSV クレンジング <span>AI</span></div>
+</div>
+
+<div class="container">
+
+  <!-- アップロード -->
+  <div class="upload-card" id="uploadCard">
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+      <input type="file" id="fileInput" accept=".csv">
+      <div class="icon">📂</div>
+      <div class="hint">クリックまたはCSVファイルをドロップ</div>
+      <div class="selected" id="selectedName"></div>
+    </div>
+    <button class="btn" id="analyzeBtn" disabled>分析する</button>
+  </div>
+
+  <!-- 結果 -->
+  <div id="results" class="hidden">
+
+    <!-- スコアヒーロー -->
+    <div class="score-hero">
+      <div class="score-ring" id="scoreRing">
+        <div class="score-ring-inner">
+          <div class="num" id="scoreNum">-</div>
+          <div class="lbl">/ 100</div>
+        </div>
+      </div>
+      <div>
+        <div class="summary" id="summaryText"></div>
+        <div class="file-meta" id="fileMeta"></div>
+      </div>
+    </div>
+
+    <!-- タブ -->
+    <div class="tabs">
+      <button class="tab active" data-tab="overview">📊 概要</button>
+      <button class="tab" data-tab="columns">📋 列の分析</button>
+      <button class="tab" data-tab="issues">⚠️ 問題レポート <span class="badge hidden" id="issueBadge">0</span></button>
+      <button class="tab" data-tab="cleaned">✨ 整形データ</button>
+    </div>
+
+    <!-- 概要パネル -->
+    <div class="panel active" id="panel-overview">
+      <div class="meta-row">
+        <div class="meta-item"><div class="val" id="metaRows">-</div><div class="lbl">行数</div></div>
+        <div class="meta-item"><div class="val" id="metaCols">-</div><div class="lbl">列数</div></div>
+        <div class="meta-item"><div class="val" id="metaIssues">-</div><div class="lbl">検出された問題</div></div>
+      </div>
+      <div class="section-title">プレビュー（先頭3行）</div>
+      <div class="table-wrap">
+        <table id="previewTable"></table>
+      </div>
+    </div>
+
+    <!-- 列分析パネル -->
+    <div class="panel" id="panel-columns">
+      <div class="col-grid" id="colGrid"></div>
+    </div>
+
+    <!-- 問題レポートパネル -->
+    <div class="panel" id="panel-issues">
+      <div class="subsection">
+        <div class="section-title">欠損値</div>
+        <div id="missingList"></div>
+      </div>
+      <div class="subsection">
+        <div class="section-title">異常値</div>
+        <div class="table-wrap" id="anomalyWrap">
+          <table id="anomalyTable"></table>
+        </div>
+        <p id="anomalyEmpty" class="hidden" style="color:var(--success);font-size:14px;">✅ 異常値は検出されませんでした</p>
+      </div>
+    </div>
+
+    <!-- 整形データパネル -->
+    <div class="panel" id="panel-cleaned">
+      <div class="dl-bar">
+        <div class="txt">AIが欠損値の補完・異常値の修正を行ったCSVです</div>
+        <button class="btn" id="downloadBtn">⬇️ ダウンロード</button>
+      </div>
+      <div class="section-title">整形後データ（修正セルはハイライト）</div>
+      <div class="table-wrap">
+        <table id="cleanedTable"></table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let selectedFile = null;
+  let cleanedCsv = null;
+
+  const fileInput = document.getElementById('fileInput');
+  const uploadArea = document.getElementById('uploadArea');
+  const uploadCard = document.getElementById('uploadCard');
+  const analyzeBtn = document.getElementById('analyzeBtn');
+
+  fileInput.addEventListener('change', e => {
+    selectedFile = e.target.files[0];
+    if (selectedFile) {
+      document.getElementById('selectedName').textContent = selectedFile.name;
+      analyzeBtn.disabled = false;
+    }
+  });
+
+  uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+  uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) {
+      selectedFile = file;
+      document.getElementById('selectedName').textContent = file.name;
+      analyzeBtn.disabled = false;
+    }
+  });
+
+  analyzeBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    document.getElementById('loading').classList.add('show');
+    document.getElementById('results').classList.add('hidden');
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      if (!res.ok) throw new Error('サーバーエラー (' + res.status + ')');
+      const data = await res.json();
+      renderResults(data);
+      uploadCard.classList.add('compact');  // アップロード欄を畳む
+    } catch(e) {
+      alert('エラー: ' + e.message);
+    } finally {
+      document.getElementById('loading').classList.remove('show');
+    }
+  });
+
+  // タブ切り替え
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  function csvToRows(csvText) {
+    return csvText.trim().split('\n').map(line => line.split(','));
+  }
+
+  function renderResults(data) {
+    const ai = data.ai_analysis;
+    cleanedCsv = ai.cleaned_csv;
+
+    // スコア
+    const score = ai.overall_score;
+    document.getElementById('scoreNum').textContent = score;
+    document.getElementById('scoreRing').style.setProperty('--pct', score + '%');
+    document.getElementById('summaryText').textContent = ai.summary;
+    document.getElementById('fileMeta').textContent = `${data.filename} ・ ${data.rows}行 × ${data.columns.length}列`;
+
+    // 問題数
+    const issueCount = (ai.missing_values?.length || 0) + (ai.anomalies?.length || 0);
+    document.getElementById('metaIssues').textContent = issueCount;
+    const badge = document.getElementById('issueBadge');
+    if (issueCount > 0) {
+      badge.textContent = issueCount;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+
+    // メタ
+    document.getElementById('metaRows').textContent = data.rows;
+    document.getElementById('metaCols').textContent = data.columns.length;
+
+    // プレビュー
+    const table = document.getElementById('previewTable');
+    const headers = data.columns.map(c => `<th>${c}</th>`).join('');
+    const rows = data.preview.map(row =>
+      `<tr>${data.columns.map(c => {
+        const v = row[c];
+        return `<td>${v === '' || v === null ? '<span class="empty">欠損</span>' : v}</td>`;
+      }).join('')}</tr>`
+    ).join('');
+    table.innerHTML = `<tr>${headers}</tr>${rows}`;
+
+    // 列分析
+    document.getElementById('colGrid').innerHTML = ai.columns.map(col => `
+      <div class="col-card ${col.issues !== 'なし' ? 'has-issue' : ''}">
+        <div class="col-name">${col.name}</div>
+        <div class="col-type">型: ${col.type}</div>
+        ${col.issues !== 'なし'
+          ? `<div class="col-issue">⚠️ ${col.issues}</div><div class="col-fix">→ ${col.suggestion}</div>`
+          : `<div class="col-ok">✅ 問題なし</div>`}
+      </div>
+    `).join('');
+
+    // 欠損値
+    const missingList = document.getElementById('missingList');
+    if (!ai.missing_values || ai.missing_values.length === 0) {
+      missingList.innerHTML = '<p style="color:var(--success);font-size:14px;">✅ 欠損値はありません</p>';
+    } else {
+      missingList.innerHTML = ai.missing_values.map(m => `
+        <div class="missing-item">
+          <div class="missing-info">
+            <div class="missing-col">${m.column}</div>
+            <div class="missing-action">${m.action}</div>
+          </div>
+          <div class="missing-bar-wrap">
+            <div class="missing-bar" style="width:${m.pct}%"></div>
+          </div>
+          <div class="missing-pct">${m.pct}%</div>
+        </div>
+      `).join('');
+    }
+
+    // 異常値
+    const anomalyTable = document.getElementById('anomalyTable');
+    const anomalyWrap = document.getElementById('anomalyWrap');
+    const anomalyEmpty = document.getElementById('anomalyEmpty');
+    if (!ai.anomalies || ai.anomalies.length === 0) {
+      anomalyWrap.classList.add('hidden');
+      anomalyEmpty.classList.remove('hidden');
+    } else {
+      anomalyWrap.classList.remove('hidden');
+      anomalyEmpty.classList.add('hidden');
+      anomalyTable.innerHTML = `
+        <tr><th>行</th><th>列</th><th>問題の値</th><th>理由</th><th>修正後</th></tr>
+        ${ai.anomalies.map(a => `
+          <tr>
+            <td>${a.row}</td>
+            <td>${a.column}</td>
+            <td style="color:var(--danger);font-weight:600">${a.value}</td>
+            <td style="color:var(--muted)">${a.reason}</td>
+            <td style="color:var(--success);font-weight:600">${a.fix}</td>
+          </tr>
+        `).join('')}
+      `;
+    }
+
+    // 整形データテーブル（修正セルをハイライト）
+    const cleanedRows = csvToRows(cleanedCsv);
+    const fixedCells = new Set();
+    (ai.anomalies || []).forEach(a => {
+      const colIdx = cleanedRows[0].indexOf(a.column);
+      if (colIdx >= 0) fixedCells.add(`${a.row}-${colIdx}`);
+    });
+    const cleanedTable = document.getElementById('cleanedTable');
+    cleanedTable.innerHTML = cleanedRows.map((row, ri) => {
+      if (ri === 0) return `<tr>${row.map(c => `<th>${c}</th>`).join('')}</tr>`;
+      return `<tr>${row.map((c, ci) =>
+        `<td class="${fixedCells.has(`${ri}-${ci}`) ? 'cell-fixed' : ''}">${c}</td>`
+      ).join('')}</tr>`;
+    }).join('');
+
+    document.getElementById('results').classList.remove('hidden');
+
+    // 概要タブに戻す
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('[data-tab="overview"]').classList.add('active');
+    document.getElementById('panel-overview').classList.add('active');
+  }
+
+  // ダウンロード
+  document.getElementById('downloadBtn').addEventListener('click', () => {
+    if (!cleanedCsv) return;
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + cleanedCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cleaned.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+</body>
+</html>
