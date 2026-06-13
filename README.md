@@ -37,7 +37,7 @@ cd csv-cleaner
 
 ```bash
 cp .env.example .env
-# .env を編集して GROQ_API_KEY を設定
+# .env を編集して AI_API_KEY を設定
 ```
 
 ### 3. 起動
@@ -80,7 +80,17 @@ csv-cleaner/
 
 ## スクリーンショット
 
-> ※ GitHubにPush後、スクリーンショットを追加してください
+### 概要 — データ品質スコアとプレビュー
+![概要](docs/screenshot-overview.png)
+
+### 列の分析 — データ型・問題点を自動検出
+![列の分析](docs/screenshot-columns.png)
+
+### 問題レポート — 欠損値・異常値を一覧表示
+![問題レポート](docs/screenshot-issues.png)
+
+### 整形データ — 修正セルをハイライト表示
+![整形データ](docs/screenshot-cleaned.png)
 
 ## ライセンス
 
